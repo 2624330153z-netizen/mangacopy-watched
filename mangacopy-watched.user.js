@@ -47,8 +47,8 @@
         bar.id = 'mc-ctrl-bar';
         Object.assign(bar.style, {
             position: 'fixed',
-            top: '10px',
-            right: '20px',
+            bottom: '10px',
+            left: '20px',
             zIndex: '99999',
             display: 'flex',
             alignItems: 'center',
