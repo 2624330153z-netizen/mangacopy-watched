@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Mangacopy 看过漫画屏蔽
 // @namespace    https://www.mangacopy.com
-// @version      2.1
-// @description  在漫画列表中添加"看过"按钮，可模糊/隐藏看过的漫画，支持导入导出数据
+// @version      2.5
+// @description  在漫画列表中添加"看过"按钮，直接将看过的漫画隐藏，支持导入导出数据；支持键盘方向键左右翻页，翻页后自动定位到排序行
 // @author       You
 // @match        https://www.mangacopy.com/comics*
 // @match        https://www.mangacopy.com/filter*
@@ -14,6 +14,7 @@
 
     const STORAGE_KEY = 'mangacopy_watched_comics';
     const HIDE_KEY = 'mangacopy_hide_watched';
+    const SCROLL_KEY = 'mangacopy_scroll_to_sort';
 
     function getWatchedSet() {
         try {
@@ -25,6 +26,7 @@
         localStorage.setItem(STORAGE_KEY, JSON.stringify([...s]));
     }
 
+    // 默认显示全部漫画（仅当显式存储为 'true' 时才隐藏看过的漫画）
     function isHideMode() {
         return localStorage.getItem(HIDE_KEY) === 'true';
     }
@@ -67,7 +69,7 @@
 
         const hideMode = isHideMode();
         const toggleBtn = document.createElement('button');
-        toggleBtn.textContent = hideMode ? '显示全部' : '隐藏看过';
+        toggleBtn.textContent = hideMode ? '隐藏看过' : '显示全部';
         Object.assign(toggleBtn.style, {
             padding: '5px 12px',
             border: '1px solid #e74c3c',
@@ -81,7 +83,7 @@
         toggleBtn.addEventListener('click', () => {
             const newHide = !isHideMode();
             setHideMode(newHide);
-            toggleBtn.textContent = newHide ? '显示全部' : '隐藏看过';
+            toggleBtn.textContent = newHide ? '隐藏看过' : '显示全部';
             toggleBtn.style.background = newHide ? '#e74c3c' : '#fff';
             toggleBtn.style.color = newHide ? '#fff' : '#e74c3c';
 
@@ -184,11 +186,17 @@
             }
         });
 
+        const hintEl = document.createElement('span');
+        hintEl.style.color = '#aaa';
+        hintEl.style.fontSize = '11px';
+        hintEl.textContent = '← → 翻页';
+
         bar.appendChild(countEl);
         bar.appendChild(toggleBtn);
         bar.appendChild(exportBtn);
         bar.appendChild(importBtn);
         bar.appendChild(clearBtn);
+        bar.appendChild(hintEl);
         document.body.appendChild(bar);
     }
 
@@ -262,7 +270,7 @@
         // 创建"看过"按钮
         const isWatched = watchedSet.has(comicId);
         const btn = document.createElement('button');
-        btn.textContent = isWatched ? '✓ 看过' : '看过';
+        btn.textContent = '看过';
         Object.assign(btn.style, {
             position: 'absolute',
             top: '5px',
@@ -271,7 +279,7 @@
             padding: '3px 8px',
             border: '1px solid #e74c3c',
             borderRadius: '3px',
-            background: isWatched ? '#e74c3c' : 'rgba(255,255,255,0.92)',
+            background: isWatched ? '#e74c3c' : '#fff',
             color: isWatched ? '#fff' : '#e74c3c',
             fontSize: '11px',
             cursor: 'pointer',
@@ -290,20 +298,16 @@
                 btn.style.background = 'rgba(255,255,255,0.92)';
                 btn.style.color = '#e74c3c';
                 btn.title = '标记为看过';
-                unblur(item, img);
                 item.classList.remove('mc-watched');
                 item.style.display = '';
             } else {
                 w.add(comicId);
-                btn.textContent = '✓ 看过';
+                btn.textContent = '看过';
                 btn.style.background = '#e74c3c';
                 btn.style.color = '#fff';
                 btn.title = '取消看过';
-                blur(item, img);
                 item.classList.add('mc-watched');
-                if (isHideMode()) {
-                    item.style.display = 'none';
-                }
+                applyVisibility(item);
             }
             saveWatchedSet(w);
             const bar = document.getElementById('mc-ctrl-bar');
@@ -324,47 +328,15 @@
 
         // 应用初始状态
         if (isWatched) {
-            blur(item, img);
             item.classList.add('mc-watched');
-            if (hideMode) {
-                item.style.display = 'none';
-            }
+            applyVisibility(item);
         }
     }
 
-    function blur(item, img) {
-        img.style.filter = 'blur(14px) brightness(0.55)';
-        img.style.transition = 'filter 0.3s';
-        // 添加"已看"覆层
-        let ov = item.querySelector('.mc-overlay');
-        if (!ov) {
-            ov = document.createElement('div');
-            ov.className = 'mc-overlay';
-            ov.textContent = '已看';
-            Object.assign(ov.style, {
-                position: 'absolute',
-                top: '40%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                zIndex: '15',
-                color: '#fff',
-                fontSize: '16px',
-                fontWeight: 'bold',
-                background: 'rgba(231,76,60,0.75)',
-                padding: '4px 14px',
-                borderRadius: '4px',
-                pointerEvents: 'none',
-                fontFamily: 'sans-serif'
-            });
-            const imgWrap = item.querySelector('.exemptComic_Item-img');
-            (imgWrap || item).appendChild(ov);
-        }
-    }
-
-    function unblur(item, img) {
-        img.style.filter = '';
-        const ov = item.querySelector('.mc-overlay');
-        if (ov) ov.remove();
+    // 根据当前隐藏模式直接隐藏或显示漫画卡片（不再模糊化）
+    function applyVisibility(item) {
+        item.style.filter = '';
+        item.style.display = isHideMode() ? 'none' : '';
     }
 
     // 扫描所有漫画卡片
@@ -399,12 +371,87 @@
         observer.observe(target, { childList: true, subtree: true });
     }
 
+    // 键盘左右方向键翻页（← 上一页，→ 下一页）
+    // 直接复用页面底部 ul.page-all 里的 prev / next 链接，自动保留筛选条件与边界
+    function navPager(dir) {
+        const link = document.querySelector('ul.page-all li.' + dir + ' a[href]');
+        if (!link) return false;
+        let target;
+        try { target = new URL(link.getAttribute('href'), location.href); } catch (e) { return false; }
+        const cur = new URL(location.href);
+        const curOffset = parseInt(cur.searchParams.get('offset') || '0', 10);
+        const tarOffset = parseInt(target.searchParams.get('offset') || '0', 10);
+        // 已在第一页 / 最后一页时不再跳转
+        if (dir === 'prev' ? tarOffset >= curOffset : tarOffset <= curOffset) return false;
+        setScrollFlag();
+        location.href = target.href;
+        return true;
+    }
+
+    function setupKeyboardPaging() {
+        document.addEventListener('keydown', (e) => {
+            if (e.defaultPrevented) return;
+            if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+            const t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+            let dir = null;
+            if (e.key === 'ArrowLeft' || e.key === 'Left') dir = 'prev';
+            else if (e.key === 'ArrowRight' || e.key === 'Right') dir = 'next';
+            if (!dir) return;
+            if (navPager(dir)) e.preventDefault();
+        });
+    }
+
+    // —— 翻页后把页面顶部定位到"排序"这一行 ——
+    function setScrollFlag() {
+        try { sessionStorage.setItem(SCROLL_KEY, '1'); } catch (e) {}
+    }
+
+    function scrollToSortRow() {
+        const groups = document.querySelectorAll('.cartoon-classify');
+        let target = null;
+        groups.forEach(g => {
+            if (!target && (g.textContent || '').indexOf('排序') !== -1) target = g;
+        });
+        if (!target && groups.length) target = groups[0];
+        if (!target) return;
+        const top = target.getBoundingClientRect().top + window.pageYOffset;
+        window.scrollTo(0, Math.max(0, top - 8));
+    }
+
+    function maybeScrollAfterPaging() {
+        let need = false;
+        try { need = sessionStorage.getItem(SCROLL_KEY) === '1'; } catch (e) {}
+        if (!need) return;
+        try { sessionStorage.removeItem(SCROLL_KEY); } catch (e) {}
+        scrollToSortRow();
+        // 懒加载图片可能改变布局，等资源就位后再校正一次
+        if (document.readyState !== 'complete') {
+            window.addEventListener('load', scrollToSortRow, { once: true });
+        }
+        setTimeout(scrollToSortRow, 400);
+    }
+
+    // 点击页面自带的分页链接（页码 / 上一页 / 下一页）时也打标记
+    function setupPagingClickHook() {
+        document.addEventListener('click', (e) => {
+            const a = e.target && e.target.closest ? e.target.closest('ul.page-all a[href]') : null;
+            if (!a) return;
+            const href = a.getAttribute('href') || '';
+            if (href.indexOf('offset=') === -1) return;
+            setScrollFlag();
+        }, true);
+    }
+
     // 启动
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => { waitAndScan(); observeDOM(); });
+        document.addEventListener('DOMContentLoaded', () => { waitAndScan(); observeDOM(); setupKeyboardPaging(); setupPagingClickHook(); maybeScrollAfterPaging(); });
     } else {
         waitAndScan();
         observeDOM();
+        setupKeyboardPaging();
+        setupPagingClickHook();
+        maybeScrollAfterPaging();
     }
 
 })();
